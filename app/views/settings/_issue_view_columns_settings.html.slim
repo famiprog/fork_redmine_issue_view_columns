@@ -12,8 +12,38 @@ p
 
 br
 
+p
+  = additionals_settings_checkbox :sort_dir_file_model,
+                                  label: l(:label_sort_dir_file_model),
+                                  active_value: @settings[:sort_dir_file_model],
+                                  tag_name: 'settings[sort_dir_file_model]'
+  em.info
+    = l :info_sort_dir_file_model
+
+br
+
 = render 'additionals/settings_list_defaults',
          query_class: IssueQuery,
          query_type: 'issue',
          legend: l(:label_select_issue_view_columns),
          totalable_columns: false
+
+br
+
+p
+  = additionals_settings_textfield :columns_min_width,
+                                   value: @settings[:columns_min_width],
+                                   label: l(:label_columns_min_width),
+                                   tag_name: 'settings[columns_min_width]'
+  em.info
+    = l :info_columns_min_width
+
+br
+
+p
+  = additionals_settings_textfield :columns_sorting,
+                                   value: @settings[:columns_sorting],
+                                   label: l(:label_sorting_columns),
+                                   tag_name: 'settings[columns_sorting]'
+  em.info
+    = l :info_columns_sorting

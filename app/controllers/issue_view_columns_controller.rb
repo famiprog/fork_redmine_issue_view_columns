@@ -4,9 +4,32 @@ class IssueViewColumnsController < ApplicationController
   before_action :find_project_by_project_id
   before_action :authorize
   before_action :build_query_for_project
+  skip_before_action :find_project_by_project_id, :authorize, :build_query_for_project, only: :update_collapsed_ids
 
   include QueriesHelper
   include IssueViewColumnsProjectsHelper
+
+  def update_collapsed_ids
+    @issue = Issue.find(params[:id])
+
+    unless User.current.logged? && User.current.allowed_to?(:edit_issues, @issue.project)
+      render json: { error: I18n.t("access_denied") }, status: :forbidden
+      return
+    end
+
+    begin
+      json_data = JSON.parse(request.body.read)
+    rescue JSON::ParserError
+      render json: { error: I18n.t("invalid_json_format") }, status: :unprocessable_entity
+      return
+    end
+
+    if @issue.update(collapsed_ids: json_data["collapsed_ids"])
+      render json: { message: I18n.t("update_successful") }, status: :ok
+    else
+      render json: { error: I18n.t("update_failed") }, status: :unprocessable_entity
+    end
+  end
 
   # refactor update, it's not good to do save like this
   def update
