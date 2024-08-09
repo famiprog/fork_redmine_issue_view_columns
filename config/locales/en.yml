@@ -15,3 +15,23 @@ en:
   info_issue_view_columns_project_settings: By activating the project module "Issue view columns" you can individually define columns for subtasks and issue relationships for the project (if these need to be different from system default).
     If you want to use system default you have to deactivate this project module.
   label_issue_view_column: Issue column
+  label_sort_dir_file_model: Sort using dir/file model
+  info_sort_dir_file_model: Enable this option to sort issues using the directory/file model.
+  label_sorting_columns: Set sorting criteria and column min-width
+  info_columns_sorting: "Specify the sorting order for each column, in order of relevance. Example: Updated:DESC, Created:ASC"
+  label_columns_min_width: Set min-width property for columns
+  info_columns_min_width: "Specify the minimum width for each column. Example: Project:200px, Status:30vw"
+  access_denied: "Access denied"
+  invalid_json_format: "Invalid JSON format"
+  update_successful: "Update successful"
+  update_failed: "Update failed"
+  label_sorting_priority_columns: Column priority in sorting
+  column_name: "Column name"
+  sorting_order: "Sorting order"
+  min_width: "Min width"
+  column_name_setting_label: "Column Name"
+  sorting_order_setting_label: "Sorting Order"
+  min_width_setting_label: "Minimum Width"
+  no_sort_sorting_option: "No Sort"
+  ascending_sorting_option: "Ascending"
+  descending_sorting_option: "Descending"
