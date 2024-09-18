@@ -50,7 +50,14 @@ module IssueViewColumnsIssuesHelper
     # Build the content for each table cell
     field_content = content_tag('td', check_box_tag('ids[]', child.id, false, id: nil), class: 'checkbox')
 
-    if child.descendants.any?
+    # If all children are closed and hidden, do not show the expand/collapse button
+    with_closed_issues = (params[:with_closed_issues] == "true")
+    status_column = columns_list.find { |column| column.instance_variable_get(:@name) == :status }
+    all_descendants_closed = child.descendants.all? do |descendant|
+      column_content(status_column, descendant) == "Closed"
+    end
+
+    if child.descendants.any? && (!all_descendants_closed || with_closed_issues)
       # Generate toggle icon for expanding/collapsing subissues
       icon_class = collapsed_ids.include?(child.id) ? 'icon icon-toggle-plus' : 'icon icon-toggle-minus'
       expand_icon = content_tag('span', '', class: icon_class, onclick: 'collapseExpand(this)')
