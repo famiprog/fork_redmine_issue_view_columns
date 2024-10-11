@@ -6,49 +6,206 @@ module IssueViewColumnsIssuesHelper
     # no field defined, then use render from core redmine (or whatever by other plugins loaded before this)
     return super if columns_list.count.zero?
 
-    # continue here if there are fields defined
+    # Retrieve sorting settings and determine if sorting by directory/file model is enabled
+    sort_dir_file_model = RedmineIssueViewColumns.setting(:sort_dir_file_model)
+    collapsed_ids = issue.collapsed_ids.to_s.split.map(&:to_i)
     field_values = +''
     s = table_start_for_relations columns_list
     manage_relations = User.current.allowed_to? :manage_subtasks, issue.project
-    # set data
-    issue_list(issue.descendants.visible.preload(:status, :priority, :tracker, :assigned_to).sort_by(&:lft)) do |child, level|
-      next if child.closed? && !issue_columns_with_closed_issues?
+    rendered_issues = Set.new
 
-      tr_classes = +"hascontextmenu #{child.css_classes} #{cycle 'odd', 'even'}"
-      tr_classes << " idnt idnt-#{level}" if level.positive?
+    render_issues(issue, ->(child, level, hidden) {
+      render_issue_row(child, level, hidden, columns_list, manage_relations, collapsed_ids, issue)
+    }, collapsed_ids, columns_list, field_values, sort_dir_file_model)
 
-      buttons = if manage_relations
-                  link_to l(:label_delete_link_to_subtask),
-                          issue_path({ id: child.id,
-                                       issue: { parent_issue_id: '' },
-                                       back_url: issue_path(issue.id),
-                                       no_flash: '1' }),
-                          method: :put,
-                          data: { confirm: l(:text_are_you_sure) },
-                          title: l(:label_delete_link_to_subtask),
-                          class: 'icon-only icon-link-break'
-                else
-                  ''.html_safe
-                end
-      buttons << link_to_context_menu
-
-      field_content = content_tag('td', check_box_tag('ids[]', child.id, false, id: nil), class: 'checkbox') +
-                      content_tag('td', link_to_issue(child, project: (issue.project_id != child.project_id)), class: 'subject')
-
-      columns_list.each do |column|
-        field_content << content_tag('td', column_content(column, child), class: column.css_classes.to_s)
-      end
-
-      field_content << content_tag('td', buttons, class: 'buttons')
-      field_values << content_tag('tr', field_content,
-                                  class: tr_classes,
-                                  id: "issue-#{child.id}").html_safe
-    end
-
+    # Append the rendered field values and end the relations table
     s << field_values
     s << table_end_for_relations
 
     s.html_safe
+  end
+
+  def render_issue_row(child, level, hidden = false, columns_list, manage_relations, collapsed_ids, issue)
+    # Construct the row classes with context menu and alternating row colors
+    tr_classes = +"hascontextmenu #{child.css_classes}"
+    tr_classes << " #{cycle('odd', 'even')}" unless hidden
+    tr_classes << " idnt-#{level}" if level.positive?
+
+    # Generate buttons for deleting if the user has the right permissions
+    buttons = if manage_relations
+        link_to l(:label_delete_link_to_subtask),
+                issue_path(id: child.id,
+                           issue: { parent_issue_id: '' },
+                           back_url: issue_path(issue.id),
+                           no_flash: '1'),
+                method: :put,
+                data: { confirm: l(:text_are_you_sure) },
+                title: l(:label_delete_link_to_subtask),
+                class: 'icon-only icon-link-break'
+      else
+        ''.html_safe
+      end
+    buttons << link_to_context_menu
+
+    # Build the content for each table cell
+    field_content = content_tag('td', check_box_tag('ids[]', child.id, false, id: nil), class: 'checkbox')
+
+    # If all children are closed and hidden, do not show the expand/collapse button
+    with_closed_issues = (params[:with_closed_issues] == "true")
+    status_column = columns_list.find { |column| column.instance_variable_get(:@name) == :status }
+    all_descendants_closed = child.descendants.all? do |descendant|
+      column_content(status_column, descendant) == "Closed"
+    end
+
+    if child.descendants.any? && (!all_descendants_closed || with_closed_issues)
+      # Generate toggle icon for expanding/collapsing subissues
+      icon_class = collapsed_ids.include?(child.id) ? 'icon icon-toggle-plus' : 'icon icon-toggle-minus'
+      expand_icon = content_tag('span', '', class: icon_class, onclick: 'collapseExpand(this)')
+      subject_content = "#{expand_icon} #{link_to_issue(child, project: (issue.project_id != child.project_id))}".html_safe
+    else
+      subject_content = link_to_issue(child, project: (issue.project_id != child.project_id))
+    end
+
+    field_content << content_tag('td', subject_content, class: 'subject')
+
+    # Add columns with their respective content
+    columns_list.each do |column|
+      field_content << content_tag('td', column_content(column, child), class: column.css_classes.to_s)
+    end
+
+    field_content << content_tag('td', buttons, class: 'buttons')
+
+    # Apply style to hide the row if hidden is true
+    row_style = hidden ? 'display: none;' : ''
+    content_tag('tr', field_content, class: tr_classes, id: "issue-#{child.id}", style: row_style).html_safe
+  end
+
+  def render_issues(issue, render_issue_row, collapsed_ids, columns_list, field_values, sort_dir_file_model, rendered_issues = Set.new)
+    render_issue_with_descendants = lambda do |parent, level, hidden = false|
+      issues_with_subissues = []
+      issues_without_subissues = []
+      issues = []
+
+      # Get direct descendants and sort them
+      direct_descendants = parent.descendants.select { |descendant| descendant.parent_id == parent.id }
+      sorted_issues = sort_issues(direct_descendants, columns_list)
+
+      sorted_issues.each do |child|
+        next if (child.closed? && !issue_columns_with_closed_issues?) || (rendered_issues.include?(child.id) && sort_dir_file_model == "1")
+
+        rendered_issues.add(child.id)
+
+        child_hidden = hidden || collapsed_ids.include?(child.id)
+
+        # Traverse sorted issues recursively
+        if sort_dir_file_model == "1"
+          if !no_child_or_only_closed_ones(child)
+            issues_with_subissues << render_issue_row.call(child, level, hidden)
+            subissues_with, subissues_without = render_issue_with_descendants.call(child, level + 1, child_hidden)
+            issues_with_subissues.concat(subissues_with)
+            issues_with_subissues.concat(subissues_without)
+          else
+            issues_without_subissues << render_issue_row.call(child, level, hidden) if child.parent_id == parent.id
+          end
+        else
+          issues << render_issue_row.call(child, level, hidden)
+          subissues = render_issue_with_descendants.call(child, level + 1, child_hidden)
+          issues.concat(subissues)
+        end
+      end
+
+      if sort_dir_file_model == "1"
+        return issues_with_subissues, issues_without_subissues
+      else
+        return issues
+      end
+    end
+
+    if sort_dir_file_model == "1"
+      issues_with_subissues, issues_without_subissues = render_issue_with_descendants.call(issue, 0)
+      field_values << issues_with_subissues.join("").html_safe
+      field_values << issues_without_subissues.join("").html_safe
+    else
+      rendered_issues = render_issue_with_descendants.call(issue, 0, false)
+      field_values << rendered_issues.join("").html_safe
+    end
+  end
+
+  def no_child_or_only_closed_ones(parent)
+    if parent.descendants.any?
+      parent.descendants.each do |issue|
+        next if issue.parent_id != parent.id
+        if !issue.closed?
+          return false
+        end
+      end
+      return true
+    end
+    return true
+  end
+
+  def sort_issues(issues, columns_list)
+    columns_sorting_setting = RedmineIssueViewColumns.setting(:columns_sorting)
+    return issues unless columns_sorting_setting.present?
+
+    # Build sorting criteria as an array of hashes with keys :column_name and :direction
+    sorting_criteria = columns_sorting_setting.split(",").map do |column_setting|
+      column_name, direction = column_setting.split(":").map(&:strip)
+      { column_name: column_name, direction: direction }
+    end
+
+    # Use the extracted comparison lambda
+    sorted_issues = issues.to_a.sort(&comparison_lambda(sorting_criteria))
+
+    sorted_issues
+  end
+
+  # Define a method for comparison lambda
+  def comparison_lambda(sorting_criteria)
+    lambda do |a, b|
+      sorting_criteria.each do |criterion|
+        column_name = criterion[:column_name]
+        direction = criterion[:direction] == "ASC" ? 1 : -1
+
+        a_value = column_name.start_with?("cf_") ? a.custom_field_value(column_name.sub(/^cf_/, "")) : get_nested_attribute_value(a, column_name) rescue nil
+        b_value = column_name.start_with?("cf_") ? b.custom_field_value(column_name.sub(/^cf_/, "")) : get_nested_attribute_value(b, column_name) rescue nil
+
+        comparison = if a_value.nil? && b_value.nil?
+            0
+          elsif a_value.nil?
+            -1
+          elsif b_value.nil?
+            1
+          else
+            case a_value
+            when Numeric
+              a_value <=> b_value
+            when String
+              a_value.to_s <=> b_value.to_s
+            when Enumerable
+              a_value.length <=> b_value.length
+            when User
+              (a_value.firstname + a_value.lastname) <=> (b_value.firstname + b_value.lastname)
+            when ActiveRecord::Base
+              a_value.respond_to?(:name) ? a_value.name <=> b_value.name : a_value.id <=> b_value.id
+            else
+              a_value.to_s <=> b_value.to_s
+            end
+          end
+
+        # If comparison is not zero, return it adjusted by direction
+        return comparison * direction if comparison != 0
+      end
+      0
+    end
+  end
+
+  # Retrieves a nested attribute value from an object based on a dot-separated attribute path ( used for parent.subject )
+  def get_nested_attribute_value(object, attribute_path)
+    attribute_parts = attribute_path.split(".")
+    attribute_parts.inject(object) do |current_object, method|
+      current_object.public_send(method) if current_object
+    end
   end
 
   # Renders the list of related issues on the issue details view
@@ -131,11 +288,22 @@ module IssueViewColumnsIssuesHelper
   private
 
   def table_start_for_relations(columns_list)
+    # Retrieve minimum width settings for columns
+    min_width_setting = RedmineIssueViewColumns.setting(:columns_min_width)
+    min_widths = {}
+    if min_width_setting.present?
+      min_width_setting.split(",").each do |column_setting|
+        column_name, min_width = column_setting.split(":").map(&:strip)
+        min_widths[column_name] = min_width
+      end
+    end
+
     s = +'<div class="autoscroll"><table class="list issues odd-even view-columns"><thead>'
 
-    s << content_tag('th', l(:field_subject), class: 'subject')
+    s << content_tag('th', l(:field_subject), class: 'subject', style: min_widths['subject'].present? ? "min-width: #{min_widths['subject']};" : '')
     columns_list.each do |column|
-      s << content_tag('th', column.caption, class: column.name)
+      min_width_style = min_widths[column.name.to_s].present? ? "min-width: #{min_widths[column.name.to_s]};" : ''
+      s << content_tag('th', column.caption, class: column.name, style: min_width_style)
     end
 
     s << content_tag('th', '', class: 'buttons')

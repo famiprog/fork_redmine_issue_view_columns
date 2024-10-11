@@ -1,0 +1,64 @@
+<script type="text/javascript">
+let collapsedIds = '<%= @issue.collapsed_ids.to_s %>';
+let issueId = '<%= @issue.id %>';
+
+function collapseExpand(element) {
+  // Extract the target issue and its idnt level
+  const $targetIssue = $(element).closest('.hascontextmenu');
+  const targetIssueIdntLevel = ($targetIssue.attr('class').match(/idnt-(\d+)/) || [0, 0])[1];
+
+  // Toggle icon class
+  const isCollapsing = element.classList.contains('icon-toggle-minus');
+  $(element).toggleClass('icon-toggle-minus icon-toggle-plus');
+
+  // Update collapsedIds
+  const targetIssueId = $targetIssue.attr('id').split('-')[1];
+  isCollapsing ? collapsedIds += targetIssueId + ' ' : collapsedIds = collapsedIds.replace(new RegExp(targetIssueId + '\\s*'), '');
+
+  // Show or hide issues based on the current toggle
+  $targetIssue.nextAll('.hascontextmenu').each(function () {
+    const $issue = $(this);
+    const issueIdntLevel = ($issue.attr('class').match(/idnt-(\d+)/) || [0, 0])[1];
+
+    if (issueIdntLevel > targetIssueIdntLevel) {
+      if (isCollapsing)
+        $issue.hide();
+      else {
+        // Check if any ancestor issue is collapsed
+        let ancestorCollapsed = false;
+        let currentIdntLevel = issueIdntLevel;
+
+        $issue.prevAll('.hascontextmenu').each(function() {
+          const $ancestor = $(this);
+          const ancestorIdntLevel = ($ancestor.attr('class').match(/idnt-(\d+)/) || [0, 0])[1];
+
+          if (ancestorIdntLevel < currentIdntLevel) {
+            if ($ancestor.find('.icon-toggle-plus').length > 0) {
+              ancestorCollapsed = true;
+              return false; // Stop checking further ancestors
+            }
+            currentIdntLevel = ancestorIdntLevel;
+          }
+        });
+        ancestorCollapsed ? $issue.hide() : $issue.show()
+      }
+    } else
+        return false; // Stop when a non-sub-issue is found
+  });
+
+  // Re-apply odd/even classes to visible rows
+  $('.hascontextmenu:visible').each(function (index) {
+    $(this).removeClass('odd even').addClass(index % 2 === 0 ? 'even' : 'odd');
+  });
+
+  // Update server with new collapsed IDs
+  Rails.ajax({
+    url: `/issue_view_columns/${issueId}/update_collapsed_ids`,
+    type: "PATCH",
+    data: JSON.stringify({
+      collapsed_ids: collapsedIds
+    }),
+    contentType: "application/json"
+  });
+}
+</script>
